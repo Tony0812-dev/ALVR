@@ -1,0 +1,66 @@
+name: CI
+
+env:
+  CARGO_TERM_COLOR: always
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build_windows_streamer:
+    runs-on: windows-2019
+    env:
+      # For bindgen to find libclang.dll, we need to give it the path to the Visual Studio package.
+      # This is specific to the GitHub windows-2019 runner.
+      LIBCLANG_PATH: 'C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Tools\Llvm\x64\bin'
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: ${{ needs.prepare_release.outputs.release_ref }}
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - uses: crazy-max/ghaction-chocolatey@v1
+        with:
+          args: install zip unzip pkgconfiglite wixtoolset
+
+      - name: Build and package ALVR
+        id: build
+        env:
+          RUST_BACKTRACE: 1
+        run: |
+          cargo xtask prepare-deps --platform windows 
+          cargo xtask package-streamer --gpl
+          $file = Get-ChildItem -Name .\build\*.exe | Select-Object -f 1
+          echo "::set-output name=exe_filename::$file"
+
+  build_android_client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: ${{ needs.prepare_release.outputs.release_ref }}
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: aarch64-linux-android
+          override: true
+      - uses: actions/setup-java@v2
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+      - uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r25c
+
+      - name: Build and package ALVR
+        id: build
+        env:
+          RUST_BACKTRACE: 1
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          cargo xtask prepare-deps --platform android 
+          cargo xtask package-client
